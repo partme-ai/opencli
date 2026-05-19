@@ -195,7 +195,7 @@ Curated highlights — **[→ see all 100+ supported sites & commands](./docs/ad
 
 Unified passthrough for your existing command-line tools. Run `opencli <tool> ...` for any of:
 
-`gh` · `docker` · `vercel` · `wrangler` · `ntn` · `obsidian` · `longbridge` · `lark-cli` · `dws` · `wecom-cli` · `tg` · `discord` · `wx`
+`gh` · `docker` · `vercel` · `wrangler` · `obsidian` · `longbridge` · `lark-cli` · `ntn(notion)` · `dws(DingTalk Workspace)` · `wecom-cli(企业微信)` · `tg(tg-cli)` · `discord(discord-cli)` · `wx(wx-cli)`
 
 Register your own with `opencli external register <name>`; list everything with `opencli external list`.
 
@@ -245,25 +245,7 @@ opencli bilibili hot -v         # Verbose: show pipeline debug steps
 
 ## Exit Codes
 
-opencli follows Unix `sysexits.h` conventions so it integrates naturally with shell pipelines and CI scripts:
-
-| Code | Meaning | When |
-|------|---------|------|
-| `0` | Success | Command completed normally |
-| `1` | Generic error | Unexpected / unclassified failure |
-| `2` | Usage error | Bad arguments or unknown command |
-| `66` | Empty result | No data returned (`EX_NOINPUT`) |
-| `69` | Service unavailable | Browser Bridge not connected (`EX_UNAVAILABLE`) |
-| `75` | Temporary failure | Command timed out — retry (`EX_TEMPFAIL`) |
-| `77` | Auth required | Not logged in to target site (`EX_NOPERM`) |
-| `78` | Config error | Missing credentials or bad config (`EX_CONFIG`) |
-| `130` | Interrupted | Ctrl-C / SIGINT |
-
-```bash
-opencli spotify status || echo "exit $?"   # 69 if browser not running
-opencli gh issue list 2>/dev/null
-[ $? -eq 77 ] && opencli gh auth login      # auto-auth if not logged in
-```
+opencli follows Unix `sysexits.h` so CI / scripts can branch on failure mode: `0` success, `66` empty result, `69` Browser Bridge down, `75` timeout, `77` auth required, `78` config error, `130` Ctrl-C. Full reference: [docs/guide/exit-codes.md](./docs/guide/exit-codes.md).
 
 ## Plugins
 
