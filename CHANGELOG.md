@@ -1,12 +1,127 @@
 # Changelog
 
+## [1.8.3](https://github.com/jackwener/opencli/compare/v1.8.2...v1.8.3) (2026-06-06)
+
+Patch release focused on two architectural fixes around extension and daemon lifecycle, plus the first wave of the new site auth subsystem.
+
+### Bug Fixes
+
+* **extension 1.0.19** — close the MV3 Service Worker race that spawned duplicate `OpenCLI Adapter` tab groups (and, in the worst case, duplicate Adapter windows). The extension now persists the owned `windowId` immediately after `chrome.windows.create` returns and persists the owned `groupId` immediately after `chrome.tabs.group` returns, so a worker death between those API calls and the subsequent `chrome.tabGroups.update` no longer leaves a titleless orphan group and no longer drops the window pointer. Title-update failure no longer ungroups (it lets `ensureCanonicalGroupTitle` self-heal on the next ensure cycle), and `collectOwnedGroupCandidates` gains a fourth recovery layer: a global scan for empty-title groups containing a known owned `preferredTabId` for the role, with explicit hijack defense for user-built untitled groups. Closes the duplicate-tab-group bug report users had reported across the 1.8.2 window. ([#1862](https://github.com/jackwener/opencli/pull/1862))
+* **daemon** — SIGKILL fallback when the stale daemon refuses graceful shutdown. After `npm install -g @jackwener/opencli@latest`, the CLI detects a version-mismatched daemon (`daemonVersion !== PKG_VERSION`), asks it to exit via `/shutdown`, and now — if the port is still held after 3 s — reads the stale daemon's pid from its own `/status` response and `process.kill(pid, 'SIGKILL')` (cross-platform: maps to `TerminateProcess` on Windows). The previous flow surfaced `Stale daemon could not be replaced` and asked users to run `opencli daemon stop && opencli doctor`; this is now automatic. ([#1861](https://github.com/jackwener/opencli/pull/1861))
+* **xiaohongshu/publish** — prioritize the visible title input when the editor renders both a hidden draft input and a visible publish input.
+* **xiaohongshu/publish** — accept inline topic suggestions with Enter when the dropdown lives inside a Shadow DOM surface, while still verifying the topic marker appears in the editor.
+* **instagram/following** — paginate beyond the first endpoint page so high `--limit` values return more than the initial batch.
+
+### Features
+
+* **site auth subsystem** — new `opencli <site> login` and `opencli <site> whoami` commands, registered through a shared `clis/_shared/site-auth.js` helper. `login` opens the site's auth page in a foreground persistent session and polls the configured `verify` probe (cookie, JSON API, DOM scrape) until the browser session reports logged-in; `whoami` runs the same probe without opening the page. First five sites: twitter, github, bilibili, douyin, xiaohongshu. `whoami` outputs are PII-scrubbed (no email / phone / token in row columns). ([#1852](https://github.com/jackwener/opencli/pull/1852))
+* **gemini** — add read-only conversation commands (list / read / search).
+* **manus** — add a read-only `manus.im` adapter.
+
+### Docs / Sitemap
+
+* **sitemaps/xiaohongshu** — Phase 2 sitemap content seeded with login schema dogfood, the first non-PoC consumer of the v1.1 sitemap schema. ([#1853](https://github.com/jackwener/opencli/pull/1853))
+
+### Internal
+
+* **test(e2e)** — raise `runCli` `maxBuffer` so manifest-output snapshots no longer truncate on macOS / Windows CI.
+
+## [1.8.2](https://github.com/jackwener/opencli/compare/v1.8.1...v1.8.2) (2026-06-03)
+
+Mid-cycle release: introduces the **Site Maps Hub** subsystem (agent-facing per-site navigation knowledge), restores the **smart-search** skill, and ships a wide batch of new adapters / commands plus a long tail of read-path fixes. Extension bumped to 1.0.18 for an owned-group reusable-tab scope fix.
+
+### Site Maps Hub (new subsystem)
+
+* **`sitemaps/<site>/` top-level seed directory** — sitemap content lives alongside `clis/` and `skills/`, parallel first-class repo citizens. Twitter and HackerNews seeded as v1 baselines.
+* **`opencli browser open` / `analyze` surface sitemap availability** — when the requested site has a sitemap (global seed or local overlay `~/.opencli/sites/<site>/sitemap/`), the JSON envelope gains an optional `sitemap` field with `{ available, source, hint }`. `open` emits the hint once per session per site (deduped via `~/.opencli/cache/browser-sitemap-hints/`); `analyze` emits every call since it is a planning command. Adds no new browser-action behavior and no `~/.opencli/sites/` writes unless an agent explicitly invokes a sitemap skill.
+* **Two new skills**:
+  * `opencli-sitemap-author` — create / maintain per-site sitemaps. Two-layer storage (global repo seed + local overlay), Form B compact YAML action schema with `pre / do / post / fail / recover / evidence`, `adapter_health_update` directives, `selector_pattern` as first-class anchor type, partial pages (`_<name>.md`) for cross-page UI, and a size-guidance table with hard 800-token / 1500-3000 cohesion / >3000 split tiers.
+  * `opencli-browser-sitemap` — consume site sitemaps while executing browser tasks. Lazy load, Trust-Reality rule (`browser state` is truth, sitemap is hint), stale-on-conflict writeback, `adapter_health` write-back closure so subsequent agents skip a known-suspect adapter.
+* **`references/sitemap-schema.md`** — full field-level spec for `SITE.md / pages/<id>.md / workflows/<id>.md / apis.md / pitfalls.md`, action `state_signature` for re-entry, `adapter_health` enum, stable-id matching across overlay layers, draft placement rule, Phase 2 validation hooks.
+* **Twitter + HackerNews v1.1 seeds** under `sitemaps/{twitter,hackernews}/` validating the schema on dense React UI and simple SSR HTML respectively.
+
+### Features
+
+* **smart-search** — restored as a skill (`skills/smart-search/`) with per-category source guides (AI / info / media / shopping / social / tech / travel / other).
+* **twitter** — batch follow + list lifecycle (`list-create` / `list-delete` / `list-add` / `list-remove` batch forms).
+* **xiaohongshu** — draft management commands (`drafts` / `draft-open` / `draft-delete` / `draft-clear`).
+* **chatgpt-app** — temporary chat + multi-modal image attachment support.
+* **antigravity** — history mgmt (`history` / `delete` / `mark-read`) and model read/switch commands.
+* **codex** — conversation management (`pin` / `unpin` / `archive` / `rename`) plus model selector fix.
+* **grok** — conversation management (`delete` / `pin` / `unpin`) with locale-independent selectors.
+* **kimi** — new adapter for `kimi.com` (21 commands).
+* **qoder** — new adapter for Qoder IDE (19 commands).
+* **trae-cn** — new desktop adapter (Trae CN Electron app).
+* **trae-solo** — new desktop adapter (Trae SOLO Electron app).
+* **chatgpt** — add web model switch command.
+* **douyin** — add `search` command for keyword video search.
+* **wechat-channels** — add WeChat Video Channels (视频号) publish adapter.
+* **pubmed** — add workflow presets and richer article metadata.
+
+### Bug Fixes
+
+* **extension 1.0.18** — scope reusable-tab selection to owned-group members (follow-up to the v1.0.17 owned-container convergence model; ensures `findReusableOwnedContainerTab` does not pick up user tabs that were dragged into the owned window).
+* **chatgpt** — ignore image placeholders and upload previews when extracting the latest assistant message.
+* **xiaohongshu** — attach real topics via inline dropdown; feed returns signed note URLs for drill-down; carousel order preserved on download.
+* **twitter** — drop global tweetPhoto selector from the post-submit poll to avoid matching the wrong button.
+* **grok** — fall back to `Enter` key dispatch when send button is hidden behind layout shifts.
+* **daemon** — differentiate multi-profile status output so multiple Chrome profiles do not collapse into a single status row.
+* **youtube** — Videos tab fallback now supports `lockupViewModel` format alongside the legacy `gridVideoRenderer`.
+* **12306** — accept lowercase letters in `train_no` regex.
+* **weixin** — strip typographic quotes from pasted URLs.
+* **launcher** — Chromium 142+ CDP websocket origin check needs `--remote-allow-origins=*`.
+* **douyin/publish** — handle illegal-title errors with a typed error rather than a silent retry.
+
+### Docs
+
+* **opencli-adapter-author** — add `references/strategy-selection.md` codifying the empirical contract ladder (PUBLIC_API / COOKIE_API / UI_SELECTOR / DOM_STATE as contracted vs PAGE_FETCH / INTERCEPT as internal-unstable, with fixes/adapter-year data from a 837-adapter / 30-day window) and update SKILL.md to require a `strategy` evidence block at the top of every new adapter.
+* **opencli-adapter-author** — `browser analyze` upgrade: each candidate API gets `real_data_score` and a `likely_data` / `maybe_data` / `noise` verdict so Pattern A is no longer fired by analytics XHRs.
+* **readme** — prefix "Let AI Agents operate any website" bullet with "Browser User &" in both EN and zh-CN.
+
+## [1.8.1](https://github.com/jackwener/opencli/compare/v1.8.0...v1.8.1) (2026-05-31)
+
+Patch release focused on the extension tab-group convergence fix, plus 10 new adapters/commands and a wave of read-path / security hardening across browser, download, and adapters.
+
+### Features
+
+* **chess** — add Chess.com browser adapter.
+* **geogebra** — add GeoGebra browser adapter suite.
+* **jira / confluence** — add Atlassian Jira and Confluence adapter support. ([#1690](https://github.com/jackwener/opencli/pull/1690))
+* **upwork** — add `search`, `feed`, and `detail` commands.
+* **notebooklm** — add guarded write commands.
+* **bilibili** — add comment commands.
+* **weread** — add book search inside an open WeRead book.
+* **linkedin** — consolidate read commands and add `profile-experience`.
+* **xiaohongshu** — paginate `creator-notes` past the analyze list cap.
+
+### Bug Fixes
+
+* **extension 1.0.16** — ship the `OpenCLI Browser` / `OpenCLI Adapter` tab-group race fix from [#1693](https://github.com/jackwener/opencli/pull/1693). The extension now serializes owned tab-group creation per role so concurrent adapter/browser leases reuse the same group instead of creating duplicate same-title groups.
+* **extension 1.0.17** — replace owned tab-group management with a Chrome-state-as-truth convergence model. The extension now keeps one canonical `OpenCLI Browser` / `OpenCLI Adapter` group per profile role, recovers renamed groups from stored hints or owned lease tabs, merges same-window and cross-window duplicates into the canonical group, and normalizes legacy or user-renamed container titles back to the canonical owned-container title. ⚠️ User-renamed `OpenCLI Browser` / `OpenCLI Adapter` groups are now force-renamed back; treat these as extension-managed automation containers, not user free-form bins. ([#1794](https://github.com/jackwener/opencli/pull/1794))
+* **browser** — write the network response cache file with `0o600` owner-only permissions to keep captured response bodies out of other local users' reach.
+* **download** — write the yt-dlp cookie file with `0o600` owner-only permissions.
+* **pixiv** — migrate `user/detail` to the shared `pixivFetch` helper.
+* **twitter** — drop unknown silent sentinels; read profile `name` / `created_at` from `result.core`; handle `NotAllowed` image-upload fallback; detect private `likes` / `following` empty-timeline shape. ([#1702](https://github.com/jackwener/opencli/pull/1702))
+* **weread** — decode HTML entities in search results.
+* **zhihu** — decode numeric HTML entities in text output. ([#1695](https://github.com/jackwener/opencli/pull/1695))
+* **xiaohongshu** — hook dashboard fetch to capture signed `datacenter/note/*` responses ([#1732](https://github.com/jackwener/opencli/pull/1732)); preserve carousel order via `__INITIAL_STATE__.imageList` on download ([#1687](https://github.com/jackwener/opencli/pull/1687)).
+* **bilibili** — subtitle support for bangumi / PGC bvid (番剧 / 纪录片 / 电影 / 综艺). ([#1669](https://github.com/jackwener/opencli/pull/1669))
+* **suno** — derive current plan from subscription metadata.
+* **douyin/hashtag** — validate action args before navigation.
+* **byte-formatting** — stabilize byte formatting output.
+
+### Docs
+
+* **readme** — correct Node floor (>=20, not 21) and drop the Prerequisites section ([#1705](https://github.com/jackwener/opencli/pull/1705)); add CLI Hub brand aliases and split Exit Codes into the dedicated docs page ([#1685](https://github.com/jackwener/opencli/pull/1685)); drop the For Developers section ([#1684](https://github.com/jackwener/opencli/pull/1684)).
+
+### Internal
+
+* **ci** — disable Dependabot automated updates.
+* **test(download)** — retry media-download Windows tests to absorb runner cold-start variance. ([#1708](https://github.com/jackwener/opencli/pull/1708))
+
 ## [1.8.0](https://github.com/jackwener/opencli/compare/v1.7.22...v1.8.0) (2026-05-20)
 
 Substantial release: a new official-API adapter (`weread-official`), wider LinkedIn / Twitter / Reddit / Zhihu coverage, the 12306 / Suno / Xianyu inbox additions, security and reliability fixes for the Browser Bridge and media downloads, plus a 20% README shrink. Node 20 compatibility is restored after an automated `undici` bump regression.
-
-### ⚠ BREAKING CHANGES
-
-* **skills** — remove the `smart-search` skill. Use `opencli-usage` for command/site reference, `opencli-browser` for ad-hoc browser operation, and `opencli-adapter-author` for writing new adapters.
 
 ### Features
 
@@ -269,6 +384,10 @@ Extension bumped to 1.0.9 (Accessibility.enable allowlist + downloads permission
 ## [1.7.13](https://github.com/jackwener/opencli/compare/v1.7.12...v1.7.13) (2026-05-07)
 
 Extension bumped to 1.0.6 (screenshot `--width` / `--height` / `--full-page` flags, automation tab group color marker, automation container reuse fix).
+
+### Bug Fixes
+
+* **xiaohongshu** — fix `publish --topics` leaving bare `#` characters with no linked topics. The adapter now types `#keyword` into the body editor to trigger the inline suggestion dropdown and selects the matching topic, matching the current creator-center UI.
 
 ### ⚠ BREAKING CHANGES
 

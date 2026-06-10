@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { CommandExecutionError } from '@jackwener/opencli/errors';
 import { getRegistry } from '@jackwener/opencli/registry';
 import './publish.js';
 function createPageMock(evaluateResults, overrides = {}) {
@@ -604,5 +605,227 @@ describe('xiaohongshu publish', () => {
                 detail: '"发布成功提示" · 1张图片 · https://creator.xiaohongshu.com/publish/publish?from=menu_left&target=image',
             },
         ]);
+    });
+    it('attaches topics via Enter to accept the inline suggestion (shadow-DOM dropdown)', async () => {
+        const cmd = getRegistry().get('xiaohongshu/publish');
+        expect(cmd?.func).toBeTypeOf('function');
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'opencli-xhs-publish-'));
+        const imagePath = path.join(tempDir, 'demo.jpg');
+        fs.writeFileSync(imagePath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+        const insertText = vi.fn().mockResolvedValue(undefined);
+        const pressKey = vi.fn().mockResolvedValue(undefined);
+        const focusCalls = [];
+        // Track per-topic chip-marker evaluate calls: before selection, then
+        // after Enter accepts the highlighted suggestion.
+        let markerChecks = 0;
+        // Skip the upload path entirely: page.setFileInput is a no-op for
+        // these tests because the topic flow is what we care about.
+        const setFileInput = vi.fn().mockResolvedValue(undefined);
+        const page = createConditionalPageMock((code) => {
+            if (code.includes('location.href'))
+                return 'https://creator.xiaohongshu.com/publish/publish?from=menu_left';
+            if (code.includes("const targets = ['上传图文', '图文', '图片']"))
+                return { ok: true, target: '上传图文', text: '上传图文' };
+            if (code.includes('hasTitleInput') && code.includes('hasVideoSurface'))
+                return { state: 'editor_ready', hasTitleInput: true, hasImageInput: true, hasVideoSurface: false };
+            // CDP setFileInput selector probe.
+            if (code.includes('document.querySelector(sels)')) {
+                return 'input[type="file"][accept*="image"]';
+            }
+            if (code.includes('const images =') && code.includes('dt.items.add(new File)'))
+                return { ok: true, count: 1 };
+            if (code.includes('[class*="upload"][class*="progress"]'))
+                return false;
+            if (code.includes('const sels =') && code.includes('for (const sel of sels)'))
+                return true;
+            // Body-editor focus helper.
+            if (code.includes('node.isContentEditable') && code.includes('selectNodeContents')) {
+                focusCalls.push(true);
+                return true;
+            }
+            // Body-scoped chip-marker postcondition. Each topic checks count
+            // before and after Enter; simulate one new marker after selection.
+            if (code.includes('__opencli_xhs_topic_marker_count')) {
+                markerChecks += 1;
+                return markerChecks % 2 === 1 ? 0 : 1;
+            }
+            if (code.includes('__opencli_xhs_fill_phase') && code.includes('"locate"')) {
+                return code.includes('[contenteditable="true"][placeholder*="标题"]')
+                    ? { ok: true, sel: '[contenteditable="true"][placeholder*="标题"]', kind: 'contenteditable' }
+                    : { ok: true, sel: '[contenteditable="true"][class*="content"]', kind: 'contenteditable' };
+            }
+            if (code.includes('__opencli_xhs_fill_phase') && code.includes('"prepare"'))
+                return { ok: true };
+            if (code.includes('__opencli_xhs_fill_phase') && code.includes('"verify"')) {
+                return code.includes('[contenteditable="true"][placeholder*="标题"]')
+                    ? { ok: true, actual: '带话题的标题' }
+                    : { ok: true, actual: '带话题的正文' };
+            }
+            if (code.includes('(function(selectors, text)')) {
+                return code.includes('[contenteditable="true"][placeholder*="标题"]')
+                    ? { ok: true, sel: '[contenteditable="true"][placeholder*="标题"]', kind: 'contenteditable', actual: '带话题的标题' }
+                    : { ok: true, sel: '[contenteditable="true"][class*="content"]', kind: 'contenteditable', actual: '带话题的正文' };
+            }
+            if (code.includes('labels.some'))
+                return { ok: true, via: 'click', text: '发布' };
+            if (code.includes('for (const el of document.querySelectorAll'))
+                return '发布成功';
+            throw new Error(`Unhandled evaluate call: ${code.slice(0, 120)}`);
+        }, {
+            insertText,
+            pressKey,
+            setFileInput,
+        });
+        const result = await cmd.func(page, {
+            title: '带话题的标题',
+            content: '带话题的正文',
+            images: imagePath,
+            topics: 'AI,效率提升',
+            draft: false,
+        });
+        // Each topic is typed as "#<topic>" via page.insertText.
+        expect(insertText).toHaveBeenCalledWith('#AI');
+        expect(insertText).toHaveBeenCalledWith('#效率提升');
+        // Body editor was focused once per topic before typing.
+        expect(focusCalls.length).toBe(2);
+        // pressKey was called at least twice per topic (separator + accept).
+        const enterCount = pressKey.mock.calls.filter(args => args[0] === 'Enter').length;
+        expect(enterCount).toBeGreaterThanOrEqual(4);
+        // Chip-marker postcondition checked before and after each topic.
+        expect(markerChecks).toBe(4);
+        expect(result).toEqual([
+            {
+                status: '✅ 发布成功',
+                detail: '"带话题的标题" · 1张图片 · 话题: AI 效率提升 · 发布成功',
+            },
+        ]);
+    });
+    it('fails typed when XHS does not render the topic chip marker after Enter', async () => {
+        const cmd = getRegistry().get('xiaohongshu/publish');
+        expect(cmd?.func).toBeTypeOf('function');
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'opencli-xhs-publish-'));
+        const imagePath = path.join(tempDir, 'demo.jpg');
+        fs.writeFileSync(imagePath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+        const insertText = vi.fn().mockResolvedValue(undefined);
+        const pressKey = vi.fn().mockResolvedValue(undefined);
+        const page = createConditionalPageMock((code) => {
+            if (code.includes('location.href'))
+                return 'https://creator.xiaohongshu.com/publish/publish?from=menu_left';
+            if (code.includes("const targets = ['上传图文', '图文', '图片']"))
+                return { ok: true, target: '上传图文', text: '上传图文' };
+            if (code.includes('hasTitleInput') && code.includes('hasVideoSurface'))
+                return { state: 'editor_ready', hasTitleInput: true, hasImageInput: true, hasVideoSurface: false };
+            // Base64 fallback (no setFileInput in the test page).
+            if (code.includes('const images =') && code.includes('for (const img of images)'))
+                return { ok: true, count: 1 };
+            if (code.includes('[class*="upload"][class*="progress"]'))
+                return false;
+            if (code.includes('const sels =') && code.includes('for (const sel of sels)'))
+                return true;
+            if (code.includes('node.isContentEditable') && code.includes('selectNodeContents'))
+                return true;
+            // Chip marker count does not increase → topic attachment failed.
+            if (code.includes('__opencli_xhs_topic_marker_count')) {
+                return 0;
+            }
+            if (code.includes('__opencli_xhs_fill_phase') && code.includes('"locate"')) {
+                return code.includes('[contenteditable="true"][placeholder*="标题"]')
+                    ? { ok: true, sel: '[contenteditable="true"][placeholder*="标题"]', kind: 'contenteditable' }
+                    : { ok: true, sel: '[contenteditable="true"][class*="content"]', kind: 'contenteditable' };
+            }
+            if (code.includes('__opencli_xhs_fill_phase') && code.includes('"prepare"'))
+                return { ok: true };
+            if (code.includes('__opencli_xhs_fill_phase') && code.includes('"verify"')) {
+                return code.includes('[contenteditable="true"][placeholder*="标题"]')
+                    ? { ok: true, actual: '话题失败标题' }
+                    : { ok: true, actual: '话题失败正文' };
+            }
+            if (code.includes('(function(selectors, text)')) {
+                return code.includes('[contenteditable="true"][placeholder*="标题"]')
+                    ? { ok: true, sel: '[contenteditable="true"][placeholder*="标题"]', kind: 'contenteditable', actual: '话题失败标题' }
+                    : { ok: true, sel: '[contenteditable="true"][class*="content"]', kind: 'contenteditable', actual: '话题失败正文' };
+            }
+            if (code.includes('labels.some')) {
+                throw new Error('publish button should not be clicked after topic postcondition failure');
+            }
+            throw new Error(`Unhandled evaluate call: ${code.slice(0, 120)}`);
+        }, {
+            insertText,
+            pressKey,
+        });
+
+        await expect(cmd.func(page, {
+            title: '话题失败标题',
+            content: '话题失败正文',
+            images: imagePath,
+            topics: '不存在的话题',
+            draft: false,
+        })).rejects.toBeInstanceOf(CommandExecutionError);
+        // We still typed and accepted the suggestion, but the postcondition
+        // check rejected the result before the publish button was clicked.
+        expect(insertText).toHaveBeenCalledWith('#不存在的话题');
+        expect(pressKey).toHaveBeenCalledWith('Enter');
+    });
+    it('does not accept a pre-existing topic marker as proof of a new attached topic', async () => {
+        const cmd = getRegistry().get('xiaohongshu/publish');
+        expect(cmd?.func).toBeTypeOf('function');
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'opencli-xhs-publish-'));
+        const imagePath = path.join(tempDir, 'demo.jpg');
+        fs.writeFileSync(imagePath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+        const insertText = vi.fn().mockResolvedValue(undefined);
+        const pressKey = vi.fn().mockResolvedValue(undefined);
+        const page = createConditionalPageMock((code) => {
+            if (code.includes('location.href'))
+                return 'https://creator.xiaohongshu.com/publish/publish?from=menu_left';
+            if (code.includes("const targets = ['上传图文', '图文', '图片']"))
+                return { ok: true, target: '上传图文', text: '上传图文' };
+            if (code.includes('hasTitleInput') && code.includes('hasVideoSurface'))
+                return { state: 'editor_ready', hasTitleInput: true, hasImageInput: true, hasVideoSurface: false };
+            if (code.includes('const images =') && code.includes('for (const img of images)'))
+                return { ok: true, count: 1 };
+            if (code.includes('[class*="upload"][class*="progress"]'))
+                return false;
+            if (code.includes('const sels =') && code.includes('for (const sel of sels)'))
+                return true;
+            if (code.includes('node.isContentEditable') && code.includes('selectNodeContents'))
+                return true;
+            // Existing marker before selection, but Enter does not attach a new
+            // entity; count remains unchanged and must fail.
+            if (code.includes('__opencli_xhs_topic_marker_count')) {
+                return 1;
+            }
+            if (code.includes('__opencli_xhs_fill_phase') && code.includes('"locate"')) {
+                return code.includes('[contenteditable="true"][placeholder*="标题"]')
+                    ? { ok: true, sel: '[contenteditable="true"][placeholder*="标题"]', kind: 'contenteditable' }
+                    : { ok: true, sel: '[contenteditable="true"][class*="content"]', kind: 'contenteditable' };
+            }
+            if (code.includes('__opencli_xhs_fill_phase') && code.includes('"prepare"'))
+                return { ok: true };
+            if (code.includes('__opencli_xhs_fill_phase') && code.includes('"verify"')) {
+                return code.includes('[contenteditable="true"][placeholder*="标题"]')
+                    ? { ok: true, actual: '已有话题标题' }
+                    : { ok: true, actual: '已有话题正文 #AI[话题]' };
+            }
+            if (code.includes('(function(selectors, text)')) {
+                return code.includes('[contenteditable="true"][placeholder*="标题"]')
+                    ? { ok: true, sel: '[contenteditable="true"][placeholder*="标题"]', kind: 'contenteditable', actual: '已有话题标题' }
+                    : { ok: true, sel: '[contenteditable="true"][class*="content"]', kind: 'contenteditable', actual: '已有话题正文 #AI[话题]' };
+            }
+            if (code.includes('labels.some')) {
+                throw new Error('publish button should not be clicked after topic postcondition failure');
+            }
+            throw new Error(`Unhandled evaluate call: ${code.slice(0, 120)}`);
+        }, {
+            insertText,
+            pressKey,
+        });
+
+        await expect(cmd.func(page, {
+            title: '已有话题标题',
+            content: '已有话题正文 #AI[话题]',
+            images: imagePath,
+            topics: 'AI',
+            draft: false,
+        })).rejects.toBeInstanceOf(CommandExecutionError);
     });
 });
