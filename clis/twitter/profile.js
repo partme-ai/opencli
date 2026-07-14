@@ -1,6 +1,6 @@
 import { ArgumentError, AuthRequiredError, CommandExecutionError, EmptyResultError } from '@jackwener/opencli/errors';
 import { cli, Strategy } from '@jackwener/opencli/registry';
-import { normalizeTwitterScreenName, resolveTwitterQueryId, unwrapBrowserResult } from './shared.js';
+import { describeTwitterApiError, normalizeTwitterScreenName, resolveTwitterQueryId, unwrapBrowserResult } from './shared.js';
 import { TWITTER_BEARER_TOKEN } from './utils.js';
 const USER_BY_SCREEN_NAME_QUERY_ID = 'IGgvgiOx4QZndDHuD3x9TQ';
 
@@ -88,7 +88,7 @@ cli({
         const queryId = await resolveTwitterQueryId(page, 'UserByScreenName', USER_BY_SCREEN_NAME_QUERY_ID);
         const rawResult = unwrapBrowserResult(await page.evaluate(`
       async () => {
-        const screenName = "${username}";
+        const screenName = ${JSON.stringify(username)};
         const ct0 = ${JSON.stringify(ct0)};
 
         const bearer = ${JSON.stringify(TWITTER_BEARER_TOKEN)};
@@ -132,6 +132,7 @@ cli({
           return {
             ok: false,
             auth: resp.status === 401 || resp.status === 403,
+            httpStatus: resp.status,
             error: 'HTTP ' + resp.status,
             hint: 'User may not exist, auth may be required, or queryId expired'
           };
@@ -152,7 +153,12 @@ cli({
             throw new CommandExecutionError('Twitter profile response payload is malformed');
         }
         if (!rawResult.ok) {
-            const message = rawResult.error + (rawResult.hint ? ` (${rawResult.hint})` : '');
+            // For HTTP errors, use fork's rich code mapping (429/401/403/404/5xx differentiation
+            // from describeTwitterApiError); fall back to the plain message for non-HTTP failures
+            // (fetch threw, JSON parse failed, payload malformed).
+            const message = typeof rawResult.httpStatus === 'number'
+                ? describeTwitterApiError('UserByScreenName', rawResult.httpStatus, rawResult.hint)
+                : rawResult.error + (rawResult.hint ? ` (${rawResult.hint})` : '');
             if (rawResult.auth) {
                 throw new AuthRequiredError('x.com', message);
             }

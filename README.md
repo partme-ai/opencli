@@ -21,7 +21,17 @@ It also works as a **CLI hub** for local tools such as `gh`, `docker`, `longbrid
 
 ### 1. Install OpenCLI
 
-OpenCLI requires **Node.js >= 20**.
+For desktop use, start with **OpenCLIApp**. It bundles the OpenCLI runtime,
+keeps the managed `opencli` command installed, and gives you a system tray UI
+for setup, diagnostics, updates, browser-login keepalive, and Web → Markdown.
+
+**Option A — OpenCLIApp (recommended for macOS / Windows):**
+Download the latest app from <https://opencli.info/download>, install it, then
+open the app once and use the System page to install or repair the `opencli`
+command.
+
+**Option B — npm global install (CLI-only / CI / servers):**
+OpenCLI requires **Node.js >= 20** when installed through npm.
 
 ```bash
 node --version
@@ -54,7 +64,7 @@ Each Chrome profile runs its own OpenCLI extension instance. If you use multiple
 opencli profile list
 opencli profile rename <contextId> work
 opencli profile use work
-opencli --profile work browser state
+opencli --profile work browser main state
 ```
 
 With only one connected profile, OpenCLI uses it automatically. With multiple connected profiles and no default, OpenCLI asks you to choose instead of guessing.
@@ -159,10 +169,9 @@ When the site you need is not yet covered, use the `opencli-adapter-author` skil
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OPENCLI_DAEMON_PORT` | `19825` | HTTP port for the daemon-extension bridge |
 | `OPENCLI_PROFILE` | — | Browser Bridge profile alias/contextId to use when multiple Chrome profiles are connected |
 | `OPENCLI_WINDOW` | command default | Set to `foreground` or `background` to override Browser Bridge window placement. Browser-backed commands also accept `--window <foreground\|background>`. |
-| `OPENCLI_BROWSER_CONNECT_TIMEOUT` | `30` | Seconds to wait for browser connection |
+| `OPENCLI_BROWSER_CONNECT_TIMEOUT` | `45` | Seconds to wait for browser connection |
 | `OPENCLI_BROWSER_COMMAND_TIMEOUT` | `60` | Seconds to wait for a single browser command |
 | `OPENCLI_CDP_ENDPOINT` | — | Chrome DevTools Protocol endpoint for remote browser or Electron apps |
 | `OPENCLI_CDP_TARGET` | — | Filter CDP targets by URL substring (e.g. `detail.1688.com`) |
@@ -175,10 +184,11 @@ When the site you need is not yet covered, use the `opencli-adapter-author` skil
 
 | Site | Commands |
 |------|----------|
-| **xiaohongshu** | `search` `note` `comments` `feed` `user` `download` `publish` `notifications` `creator-notes` `creator-notes-summary` `creator-note-detail` `creator-profile` `creator-stats` |
-| **bilibili** | `hot` `search` `history` `feed` `ranking` `download` `comments` `dynamic` `favorite` `following` `me` `subtitle` `summary` `video` `user-videos` |
+| **xiaohongshu** | `search` `ask` `note` `comments` `feed` `user` `download` `publish` `follow` `unfollow` `notifications` `creator-notes` `creator-notes-summary` `creator-note-detail` `creator-profile` `creator-stats` |
+| **bilibili** | `hot` `search` `history` `feed` `ranking` `download` `comments` `dynamic` `favorite` `following` `follow` `unfollow` `me` `subtitle` `summary` `video` `user-videos` |
 | **zhihu** | `hot` `search` `question` `download` `follow` `like` `favorite` `comment` `answer` |
 | **hackernews** | `top` `new` `best` `ask` `show` `jobs` `search` `user` |
+| **hltv** | `search` `player-summary` `player-matches` `player-form` `player-map-pool` `player-vs-team` `player-teammate-impact` `player-duel` `match-map` `match-series` `team-matches` `team-map-pool` `event-matches` |
 | **geogebra** | `eval` `add-point` `add-line` `add-circle` `add-polygon` `triangle` `hexagon` `list` `info` |
 | **linkedin** | `connect` `inbox` `job-detail` `jobs-preferences` `post-analytics` `posts` `profile-experience` `profile-projects` `profile-read` `profile-analytics` `safe-send` `search` `services-read` `sent-invitations` `thread-snapshot` `timeline` `salesnav-search` `salesnav-inbox` `salesnav-message` `salesnav-thread` |
 | **reddit** | `hot` `frontpage` `popular` `search` `subreddit` `read` `user` `user-posts` `user-comments` `upvote` `upvoted` `save` `saved` `comment` `subscribe` |
@@ -188,6 +198,8 @@ When the site you need is not yet covered, use the `opencli-adapter-author` skil
 | **notebooklm** | `status` `list` `open` `current` `get` `history` `summary` `note-list` `notes-get` `source-list` `source-get` `source-fulltext` `source-guide` |
 | **amazon** | `bestsellers` `search` `product` `offer` `discussion` `movers-shakers` `new-releases` `rankings` |
 | **upwork** | `search` `feed` `detail` |
+| **slock** | `message-send` `message-read` `message-search` `channel-list` `channel-info` `channel-create` `channel-members` `channel-join` `task-list` `task-create` `task-claim` `task-status` `task-convert` `task-delete` `thread-list` `thread-follow` `attachment-upload` `attachment-download` `bookmark-add` `inbox` `dm-list` `server-list` `server-use` `whoami` |
+| **huodongxing** | `events` |
 
 Curated highlights — **[→ see all 100+ supported sites & commands](./docs/adapters/index.md)** (douyin / weibo / spotify / 1688 / quark / nowcoder / google-scholar / hupu / xianyu / weread / weread-official / xiaoyuzhou / Chess.com / and more).
 

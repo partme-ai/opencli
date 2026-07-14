@@ -6,7 +6,8 @@ import {
     currentChatGPTUrl,
     ensureChatGPTComposer,
     ensureOnChatGPT,
-    getBubbleCount,
+    getChatGPTResponsePairCounts,
+    getVisibleMessages,
     normalizeBooleanFlag,
     openChatGPTConversation,
     requireNonEmptyPrompt,
@@ -16,6 +17,7 @@ import {
     selectChatGPTTool,
     isGenerating,
     startNewChat,
+    navigateToProject,
     waitForChatGPTResponse,
 } from './utils.js';
 
@@ -48,6 +50,7 @@ export const askCommand = cli({
         { name: 'timeout', type: 'int', default: 120, help: 'Max seconds to wait for response' },
         { name: 'new', type: 'boolean', default: false, help: 'Start a new chat before sending' },
         { name: 'conversation', valueRequired: true, help: 'Continue an existing ChatGPT conversation ID or /c/<id> URL' },
+        { name: 'project', valueRequired: true, help: 'Start a new chat inside a ChatGPT project ID or /g/g-p-<id> URL' },
         { name: 'wait', type: 'boolean', default: true, help: 'Wait for the assistant response after sending' },
         { name: 'deep-research', type: 'boolean', default: false, help: 'Enable ChatGPT 深度研究 (Deep Research)' },
         { name: 'web-search', type: 'boolean', default: false, help: 'Enable ChatGPT 网页搜索 (Web Search)' },
@@ -75,10 +78,18 @@ export const askCommand = cli({
                 'Choose either a new chat or an existing conversation.',
             );
         }
+        if (kwargs.project && kwargs.conversation) {
+            throw new ArgumentError(
+                'chatgpt ask cannot use --project and --conversation together',
+                'Choose either a project new chat or an existing conversation.',
+            );
+        }
         const tool = useDeepResearch ? 'deep-research' : (useWebSearch ? 'web-search' : null);
 
         if (kwargs.conversation) {
             await openChatGPTConversation(page, kwargs.conversation);
+        } else if (kwargs.project) {
+            await navigateToProject(page, kwargs.project);
         } else if (normalizeBooleanFlag(kwargs.new)) {
             await startNewChat(page);
         } else {
@@ -94,10 +105,12 @@ export const askCommand = cli({
             if (Date.now() - settleStart > timeout * 1000) {
                 throw new CommandExecutionError('ChatGPT conversation is still generating; wait for it to finish before sending another message.');
             }
-            await page.wait(3);
+            await page.sleep(3);
         }
 
-        const baseline = await getBubbleCount(page);
+        const baselineMessages = await getVisibleMessages(page);
+        const baseline = baselineMessages.length;
+        const baselinePairCounts = getChatGPTResponsePairCounts(baselineMessages, prompt);
         const sent = await sendChatGPTMessage(page, prompt);
         if (!sent) {
             throw new CommandExecutionError('Failed to send message to ChatGPT', `Open ${CHATGPT_URL} and verify the composer is ready.`);
@@ -107,7 +120,10 @@ export const askCommand = cli({
         if (!shouldWait) {
             return [{ conversationId, conversationUrl, tool: selectedTool?.Tool ?? '', response: '' }];
         }
-        const response = await waitForChatGPTResponse(page, baseline, prompt, timeout);
+        const response = await waitForChatGPTResponse(page, baseline, prompt, timeout, {
+            baselinePairCounts,
+            conversationUrl,
+        });
         return [{ conversationId, conversationUrl, tool: selectedTool?.Tool ?? '', response }];
     },
 });

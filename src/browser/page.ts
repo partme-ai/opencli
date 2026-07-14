@@ -33,7 +33,7 @@ function isUnsupportedNetworkCaptureError(err: unknown): boolean {
 // to the session lease (or create a fresh tab).
 function isStalePageIdentityError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
-  return message.includes('stale page identity');
+  return message.includes('stale page identity') || /^Page not found:\s*\S+\s*$/.test(message);
 }
 
 /**
@@ -49,6 +49,8 @@ export class Page extends BasePage {
     private readonly windowMode?: 'foreground' | 'background',
     private readonly surface: 'browser' | 'adapter' = 'browser',
     private readonly siteSession?: 'ephemeral' | 'persistent',
+    /** Soft profile preference (config default) — daemon arbitrates; see profileRouteParams. */
+    public readonly preferredContextId?: string,
   ) {
     super();
     this._idleTimeout = idleTimeout;
@@ -60,11 +62,12 @@ export class Page extends BasePage {
   private _networkCaptureWarned = false;
 
   /** Helper: spread session into command params */
-  private _sessionOpts(): { session: string; surface: 'browser' | 'adapter'; idleTimeout?: number; contextId?: string; windowMode?: 'foreground' | 'background'; siteSession?: 'ephemeral' | 'persistent' } {
+  private _sessionOpts(): { session: string; surface: 'browser' | 'adapter'; idleTimeout?: number; contextId?: string; preferredContextId?: string; windowMode?: 'foreground' | 'background'; siteSession?: 'ephemeral' | 'persistent' } {
     return {
       session: this.session,
       surface: this.surface,
       ...(this.contextId && { contextId: this.contextId }),
+      ...(this.preferredContextId && { preferredContextId: this.preferredContextId }),
       ...(this._idleTimeout != null && { idleTimeout: this._idleTimeout }),
       ...(this.windowMode && { windowMode: this.windowMode }),
       ...(this.siteSession && { siteSession: this.siteSession }),
@@ -77,6 +80,7 @@ export class Page extends BasePage {
       session: this.session,
       surface: this.surface,
       ...(this.contextId && { contextId: this.contextId }),
+      ...(this.preferredContextId && { preferredContextId: this.preferredContextId }),
       ...(this._page !== undefined && { page: this._page }),
       ...(this._idleTimeout != null && { idleTimeout: this._idleTimeout }),
       ...(this.windowMode && { windowMode: this.windowMode }),
@@ -94,9 +98,9 @@ export class Page extends BasePage {
     } catch (err) {
       // If our cached targetId went stale (tab closed externally, identity evicted),
       // drop the dead id and retry without it — the extension will resolve through the
-      // session lease or open a fresh automation tab. Without this, subsequent
-      // navigations in the same Page instance keep re-sending the same dead targetId
-      // and cascade into "Page not found:" failures.
+      // session lease or open a fresh automation tab. Without this, every subsequent
+      // adapter call in the same process keeps re-sending the same dead targetId and
+      // cascades into "Page not found:" failures across concurrent calls.
       if (!isStalePageIdentityError(err) || this._page === undefined) throw err;
       this._page = undefined;
       result = await sendCommandFull('navigate', {
